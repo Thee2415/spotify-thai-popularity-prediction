@@ -36,7 +36,7 @@ The framework processes multi-dimensional datasets by separating time-series loo
 * **GRU** minimized individual errors effectively, delivering the lowest Mean Absolute Error (MAE) at **1.6121 points** on a 0-100 scale.
 
 ### 3. Core Takeaway
-Through Model Explainability (SHAP Beeswarm diagnostics)[cite: 1], the system isolated the top core operational indicators driving a track's success:
+Through Model Explainability (SHAP Beeswarm diagnostics), the system isolated the top core operational indicators driving a track's success:
 * **Artist Reputation Baseline (`artist_popularity` & `artist_followers`)**: A high baseline popularity accumulated by the artist serves as the strongest positive driver for future hits.
 * **Market Trend Preference (`genre_thai hip hop`)**: The Thai Hip Hop genre shows a dominant positive impact on model decisions, highlighting strong current market consumer demand.
 * **Playlist Visibility & Historical Momentum (`playlist_rank_t-1` & `rank_change` variables)**: Higher playlist placements at recent timesteps ($t-1$) and high positive ranking momentum at historical lookbacks ($t-5$, $t-6$) significantly catalyze a track's probability of becoming a commercial hit.
