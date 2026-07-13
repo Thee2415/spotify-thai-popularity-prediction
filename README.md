@@ -1,7 +1,7 @@
 # Spotify Thai Music Popularity Prediction
-### Forecasting Streaming Success Using Machine Learning and Dual-Input RNN Architectures
+### Predicting Streaming Success Using Machine Learning and Dual-Input RNN Architectures
 
-This repository contains the complete end-to-end source code for my final year research project at King Mongkut's University of Technology Thonburi (KMUTT). The core objective of this project is to build an automated system capable of forecasting track popularity scores and classifying "Hit" songs 14 days in advance (based on a 6-timestep temporal lookback).
+This repository contains the complete end-to-end source code for my final year research project at King Mongkut's University of Technology Thonburi (KMUTT). The core objective of this project is to build an automated system capable of Predicting track popularity scores and classifying "Hit" songs 14 days in advance (based on a 6-timestep temporal lookback).
 
 ---
 
