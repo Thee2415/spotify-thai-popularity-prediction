@@ -1,65 +1,116 @@
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+from dotenv import load_dotenv
 import os
-import warnings
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import shap
+import time
+from datetime import datetime
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from xgboost import XGBClassifier, XGBRegressor
-from sklearn.metrics import (accuracy_score, f1_score, precision_score, recall_score,
-                             confusion_matrix, classification_report, r2_score, 
-                             mean_absolute_error, roc_curve, auc, precision_recall_curve)
-
-warnings.filterwarnings('ignore')
-sns.set_theme(style="whitegrid")
-
-# 1. Loading & Data Preparation
+# --- 1. CONFIGURATION & AUTHENTICATION ---
+# Use relative paths instead of hardcoded drives for better environment flexibility
 base_path = os.path.dirname(os.path.abspath(__file__))
-csv_path = os.path.join(base_path, 'Master_Raw_Data.csv')
-df = pd.read_csv(csv_path)
+load_dotenv(dotenv_path=os.path.join(base_path, ".env"))
 
-# Feature Engineering เชิงพลวัต
-df['pop_velocity'] = df.groupby('track_id')['track_popularity'].diff().fillna(0)
-df['rank_change'] = df.groupby('track_id')['playlist_rank'].diff().fillna(0)
+client_id = os.getenv('CLIENT_ID')
+client_secret = os.getenv('CLIENT_SECRET')
 
-# จัดการข้อมูลแนวเพลง (คัดเฉพาะกลุ่ม Top 10 กระแสหลัก)
-df['main_genre'] = df['artist_genres'].apply(lambda x: str(x).split(',')[0].strip())
-top_genres = df['main_genre'].value_counts().nlargest(10).index
-df['main_genre'] = df['main_genre'].apply(lambda x: x if x in top_genres else 'other')
-df_encoded = pd.get_dummies(df, columns=['main_genre'], prefix='genre')
+if not client_id or not client_secret:
+    raise ValueError("Missing Spotify API credentials. Please check your .env file.")
 
-# คัดกรองเฉพาะเพลงที่มีจุดสังเกตต่อเนื่องเพียงพอ (ขั้นต่ำ 12 จุดเวลา หรือประมาณ 4 สัปดาห์)
-track_counts = df_encoded['track_id'].value_counts()
-valid_tracks = track_counts[track_counts >= 12].index
-filtered_df = df_encoded[df_encoded['track_id'].isin(valid_tracks)].copy()
+# Initialize Spotify API connection
+sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=client_id, client_secret=client_secret))
 
-# คัดเลือกเกณฑ์ตัดสินสถานะเพลงฮิตด้วยค่ามัธยฐานของชุดข้อมูลจริง
-median_threshold = filtered_df['track_popularity'].median()
+# 5 Target official playlists representing the Thai music market
+PLAYLIST_CONFIG = {
+  "ฉันฟังเพลงไทย": "1dnaNNnFcdle7DB9mSmian",
+  "T-Pop Now": "654i1Fk51pcrk5gykqCLhp",
+  "ROCK CODE": "08xy6NAWYPOlblS10xXo0i",
+  "ฮิปฮอป R.E.A.L.": "1lnqGcFfHx8M0qMNfODv7c",
+  "อินดี้ศาสตร์ Indieology": "6VOR5XrWWPtFz15VD1ULMI",
+}
 
-# ทำการ Shift ตัวแปรตามพยากรณ์ไปข้างหน้า 6 ขั้นเวลา (ล่วงหน้า 14 วัน)
-filtered_df['target_pop'] = filtered_df.groupby('track_id')['track_popularity'].shift(-6)
-filtered_df['is_hit'] = (filtered_df['target_pop'] >= median_threshold).astype(int)
-final_df = filtered_df.dropna(subset=['target_pop']).reset_index(drop=True)
+COLLECTION_DATE = datetime.now().strftime('%Y-%m-%d')
+ALL_RECORDS = []
+ALL_ARTIST_IDS = set()
 
-# 2. Features Definition
-features = (
-    [f'playlist_rank_t-{i}' for i in range(6, 0, -1)] +
-    [f'pop_velocity_t-{i}' for i in range(6, 0, -1)] +
-    [f'rank_change_t-{i}' for i in range(6, 0, -1)] +
-    ['artist_popularity', 'artist_followers'] +
-    [col for col in final_df.columns if col.startswith('genre_')]
-)
+# --- 2. DATA ACQUISITION (ETL) ---
+def get_tracks_and_artists_from_playlists():
+    """Extract top 50 tracks from each target playlist daily."""
+    print(f"Starting data collection for date: {COLLECTION_DATE}")
+    for playlist_name, playlist_id in PLAYLIST_CONFIG.items():
+        try:
+            results = sp.playlist_tracks(playlist_id, limit=50)
+            for i, item in enumerate(results['items']):
+                track = item.get('track', {})
+                if not track or not track.get('id'): continue
 
-# [หมายเหตุ] 
-# ก่อนรันโมเดลขั้นถัดไป ข้อมูลตัวแปรต้น (X) ต้องผ่านขั้นตอนการสไลด์หน้าต่างเวลา (Sliding Window) 
-# เพื่อจับคู่ข้อมูลย้อนหลัง 6 จุดเวลาเข้าสู่อาเรย์สำหรับทำนายโมเดลต่อไป
+                ALL_RECORDS.append({
+                    'track_id': track['id'],
+                    'track_name': track.get('name'),
+                    'artist_name': track['artists'][0]['name'] if track.get('artists') else "Unknown",
+                    'collection_date': COLLECTION_DATE,
+                    'playlist_name': playlist_name,
+                    'playlist_rank': i + 1,  # Capture track position on the playlist
+                    'track_popularity': track.get('popularity'),
+                    'release_date': track['album'].get('release_date') if track.get('album') else None,
+                    'artist_id': track['artists'][0]['id'] if track.get('artists') else None
+                })
+                if track['artists'][0]['id']: 
+                    ALL_ARTIST_IDS.add(track['artists'][0]['id'])
+                    
+            print(f"Successfully processed {len(results['items'])} tracks from: {playlist_name}")
+            time.sleep(0.5) # API Rate-limiting safeguard
+        except Exception as e:
+            print(f"Error fetching tracks from '{playlist_name}': {e}")
+            continue
 
-# ตัวอย่างแนวทางการแบ่งส่วนชุดข้อมูลทดสอบมาตรฐานสัดส่วน 64:16:20
-# X, y = final_df[features], final_df['is_hit']
-# X_train_val, X_test, y_train_val, y_test = train_test_split(X, y, test_size=0.20, random_state=42)
-# X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.20, random_state=42)
+def get_artist_metadata():
+    """Fetch profile features (followers, popularity) for unique artists in batches of 50."""
+    artist_metadata = {}
+    artist_list = list(filter(None, ALL_ARTIST_IDS))
+    batch_size = 50
+    print(f"Fetching metadata for {len(artist_list)} unique artists...")
+    for i in range(0, len(artist_list), batch_size):
+        batch = artist_list[i:i + batch_size]
+        try:
+            artists_data = sp.artists(batch)
+            if artists_data and 'artists' in artists_data:
+                for artist in artists_data['artists']:
+                    if artist and artist.get('id'):
+                        artist_metadata[artist['id']] = {
+                            'artist_popularity': artist.get('popularity'),
+                            'artist_followers': artist.get('followers', {}).get('total', 0),
+                            'artist_genres': ', '.join(artist.get('genres', []))
+                        }
+            time.sleep(0.3) 
+        except Exception as e:
+            print(f"Error fetching artist batch: {e}")
+            time.sleep(1)
+    return artist_metadata
+
+# --- 3. PIPELINE AUTOMATION ---
+if __name__ == "__main__":
+    get_tracks_and_artists_from_playlists()
+    
+    artist_data = get_artist_metadata() if ALL_RECORDS else {}
+    df_final = pd.DataFrame(ALL_RECORDS)
+    df_artist_lookup = pd.DataFrame.from_dict(artist_data, orient='index').reset_index().rename(columns={'index': 'artist_id'})
+
+    # Merge track data with artist profile data
+    df_merged = pd.merge(df_final, df_artist_lookup, on='artist_id', how='left') if not df_artist_lookup.empty else df_final
+
+    # Export daily snapshot to folder
+    export_folder = os.path.join(base_path, "DATA_5playist")
+    os.makedirs(export_folder, exist_ok=True)
+
+    filename = f"spotify_data_{COLLECTION_DATE}_{datetime.now().strftime('%H%M')}.csv"
+    df_merged.to_csv(os.path.join(export_folder, filename), index=False, encoding='utf-8-sig')
+    print(f"Daily snapshot saved to: {filename}")
+    
+    # Auto-append to Master Dataset for centralized data warehouse storage
+    master_path = os.path.join(base_path, 'Master_Raw_Data.csv')
+    if os.path.exists(master_path):
+        df_merged.to_csv(master_path, mode='a', header=False, index=False, encoding='utf-8-sig')
+    else:
+        df_merged.to_csv(master_path, index=False, encoding='utf-8-sig')
+    print(f"Pipeline complete. Master Database updated at: {master_path}")
