@@ -43,7 +43,7 @@ Through Model Explainability (SHAP Beeswarm diagnostics)[cite: 1], the system is
 
 ---
 
-## 📂 Project Repository Structure
+##  Project Repository Structure
 * `import_data.py`: The automated daily ETL data pipeline connecting securely to the Spotify Web API.
 * `cls_model.py`: Handles tabular feature engineering, implements the sliding window data transformation, and trains the classical ML models (including SHAP visual diagnostics).
 * `rnn_model.py`: Assembles the deep learning network via Keras (TensorFlow), utilizing a multi-task learning structure to process static and sequential inputs simultaneously.
